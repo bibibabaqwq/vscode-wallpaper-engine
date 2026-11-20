@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; img-src {{cspSource}} data: http://127.0.0.1:* https:; connect-src http://127.0.0.1:*;" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wallpaper Engine</title>
+<link rel="stylesheet" href="{{css}}" />
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">◐</div>
+    <div>
+      <h1>Wallpaper Engine</h1>
+      <p class="sub">VS Code 动态壁纸 · 透明度控制台</p>
+    </div>
+  </header>
+
+  <section class="card current">
+    <div class="now">
+      <div class="dot" id="statusDot"></div>
+      <div class="nowText">
+        <div class="nowTitle" id="wpTitle">未加载壁纸</div>
+        <div class="nowMeta"><span class="badge" id="wpKind">—</span><span class="path" id="wpFile"></span></div>
+      </div>
+    </div>
+    <div class="row buttons">
+      <button id="btnSwitch" class="primary">切换壁纸</button>
+      <button id="btnSync">同步 WE 当前壁纸</button>
+      <button id="btnRefresh">刷新</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardHead">
+      <h2>壁纸不透明度</h2>
+      <span class="value" id="bgVal">55%</span>
+    </div>
+    <input type="range" id="bgOpacity" min="0" max="100" step="1" />
+    <p class="hint">控制壁纸本身的亮度。建议 35%–70%，越高壁纸越明显。</p>
+  </section>
+
+  <section class="card" id="sceneCard" hidden>
+    <div class="cardHead">
+      <h2>场景控制</h2>
+      <span class="value" id="sceneStatus">未运行</span>
+    </div>
+    <p class="hint">
+      Wallpaper Engine 会在屏幕外渲染真实场景，并把画面实时送进 VS Code（不是封面图）。
+      修改属性会重启一次预览窗口（约 2 秒），<b>不会影响你的桌面壁纸</b>。
+    </p>
+    <p class="hint error" id="sceneHint" hidden></p>
+    <div class="rule sceneRule">
+      <span class="lbl">场景帧率</span>
+      <div class="sceneControl"><input type="range" id="sceneFps" min="10" max="30" step="1" /></div>
+      <span class="val" id="sceneFpsVal">24 FPS</span>
+    </div>
+    <div class="sceneMeta">
+      <span>渲染尺寸 <b id="sceneRes">—</b></span>
+      <span>编码 <b>JPEG</b></span>
+    </div>
+    <div id="sceneProps" class="rules sceneProps"></div>
+    <div class="row buttons">
+      <button id="btnSceneReload">重新启动场景</button>
+      <button id="btnSceneSync">从桌面重新同步属性</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardHead">
+      <h2>界面透明化</h2>
+      <label class="switch"><input type="checkbox" id="trEnabled" /><span></span></label>
+    </div>
+    <p class="hint">0% = 该区域完全透明（能看到壁纸）；100% = 完全不透明。拖动滑块即时生效。</p>
+    <div class="presets">
+      <button data-preset="clear">全透明</button>
+      <button data-preset="soft">柔和</button>
+      <button data-preset="solid">全部不透明</button>
+    </div>
+    <div id="rules" class="rules"></div>
+    <div class="baseRow">
+      <span class="lbl">透明基底颜色</span>
+      <input type="color" id="baseColor" value="#000000" />
+      <label class="check"><input type="checkbox" id="baseAuto" checked /> 自动（跟随主题）</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardHead"><h2>行为</h2></div>
+    <label class="check"><input type="checkbox" id="autoSync" /> 自动同步 Wallpaper Engine 当前壁纸（含切换监听）</label>
+    <label class="check"><input type="checkbox" id="pauseOnBlur" /> 失去焦点时暂停视频壁纸</label>
+    <label class="check"><input type="checkbox" id="kenBurns" /> 静态截图使用缓慢缩放动画</label>
+    <label class="lbl" for="customCss">自定义 CSS</label>
+    <textarea id="customCss" rows="6" spellcheck="false" placeholder="/* 例如：.part.statusbar { font-size: 12px; } */"></textarea>
+  </section>
+
+  <footer>
+    <button id="btnFolder">打开壁纸文件夹</button>
+    <button id="btnNative">原生设置</button>
+    <span class="version">v0.3.2</span>
+  </footer>
+</div>
+<script src="{{js}}"></script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+{
+  "name": "vscode-wallpaper-engine",
+  "displayName": "VSCode Wallpaper Engine",
+  "description": "在 VS Code 中使用 Wallpaper Engine 动态壁纸：视频 / Web / Scene 真实实时渲染，支持场景属性控制与精细化透明度调节。",
+  "publisher": "vakesamahere",
+  "author": {
+    "name": "vakesamahere (Vake) - original author",
+    "url": "https://github.com/vakesamahere"
+  },
+  "version": "0.3.2",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "wallpaper",
+    "wallpaper engine",
+    "background",
+    "transparency",
+    "动态壁纸"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-wallpaper-engine.setWallpaper",
+        "title": "Set Wallpaper: 设置壁纸",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.syncWallpaper",
+        "title": "Sync with Wallpaper Engine: 同步当前壁纸",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.openSettings",
+        "title": "Open Wallpaper Settings: 打开壁纸设置",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.refreshWallpaper",
+        "title": "Refresh Wallpaper: 刷新壁纸",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.clearWallpaper",
+        "title": "Disable Wallpaper: 关闭壁纸",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.openFolder",
+        "title": "Open Wallpaper Folder: 打开壁纸文件夹",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.repairInstallation",
+        "title": "Repair Installation: 修复安装校验",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.uninstallWallpaper",
+        "title": "Uninstall Wallpaper Engine: 卸载注入",
+        "category": "Wallpaper"
+      },
+      {
+        "command": "vscode-wallpaper-engine.restartScene",
+        "title": "Restart Scene Render: 重启场景实时渲染",
+        "category": "Wallpaper"
+      }
+    ],
+    "configuration": {
+      "title": "VSCode Wallpaper Engine",
+      "properties": {
+        "vscode-wallpaper-engine.workshopPath": {
+          "type": "string",
+          "default": "",
+          "description": "Wallpaper Engine 创意工坊目录，例如 D:/Program Files/steam/steamapps/workshop/content/431960"
+        },
+        "vscode-wallpaper-engine.wallpaperEnginePath": {
+          "type": "string",
+          "default": "",
+          "description": "Wallpaper Engine 安装目录（可选）。留空则根据 workshopPath 自动推断。"
+        },
+        "vscode-wallpaper-engine.wallpaperId": {
+          "type": "string",
+          "default": "",
+          "description": "当前壁纸 ID（创意工坊文件夹名）"
+        },
+        "vscode-wallpaper-engine.serverPort": {
+          "type": "number",
+          "default": 23333,
+          "description": "本地壁纸服务端口"
+        },
+        "vscode-wallpaper-engine.backgroundOpacity": {
+          "type": "number",
+          "default": 0.55,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "壁纸本身的显示不透明度（0-1）"
+        },
+        "vscode-wallpaper-engine.transparencyEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否开启界面透明化"
+        },
+        "vscode-wallpaper-engine.transparencyBaseColor": {
+          "type": "string",
+          "default": "",
+          "description": "透明化基底色（#RRGGBB）。留空则根据主题自动使用黑/白。"
+        },
+        "vscode-wallpaper-engine.transparencyRules": {
+          "type": "object",
+          "default": {
+            "editor.background": 0,
+            "editorGroup.emptyBackground": 0,
+            "editorGroupHeader.tabsBackground": 0,
+            "sideBar.background": 0,
+            "panel.background": 0,
+            "terminal.background": 0,
+            "activityBar.background": 0,
+            "titleBar.activeBackground": 0,
+            "statusBar.background": 0
+          },
+          "description": "各区域不透明度规则（0 = 完全透明，1 = 不透明）",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "vscode-wallpaper-engine.customCss": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "注入到 VS Code 的自定义 CSS"
+        },
+        "vscode-wallpaper-engine.customJs": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "壁纸加载后执行的自定义 JavaScript"
+        },
+        "vscode-wallpaper-engine.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动同步 Wallpaper Engine 当前正在使用的壁纸（启动时及切换壁纸时）"
+        },
+        "vscode-wallpaper-engine.syncMonitor": {
+          "type": "string",
+          "default": "Monitor0",
+          "description": "同步时使用的显示器键名（Monitor0 / Monitor1 ...）"
+        },
+        "vscode-wallpaper-engine.pauseOnBlur": {
+          "type": "boolean",
+          "default": true,
+          "description": "VS Code 失去焦点时暂停视频壁纸以节省性能"
+        },
+        "vscode-wallpaper-engine.staticKenBurns": {
+          "type": "boolean",
+          "default": true,
+          "description": "静态图片壁纸使用缓慢缩放动画（场景壁纸已改为实时渲染，不再使用）"
+        },
+        "vscode-wallpaper-engine.sceneEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "场景壁纸 (Scene) 使用 Wallpaper Engine 实时渲染。关闭后只显示封面预览。"
+        },
+        "vscode-wallpaper-engine.sceneFps": {
+          "type": "number",
+          "default": 24,
+          "minimum": 5,
+          "maximum": 60,
+          "description": "场景实时渲染帧率（默认 24）"
+        },
+        "vscode-wallpaper-engine.sceneQuality": {
+          "type": "number",
+          "default": 72,
+          "minimum": 40,
+          "maximum": 95,
+          "description": "场景画面 JPEG 质量（默认 72，越高越清晰也越占带宽）"
+        },
+        "vscode-wallpaper-engine.sceneMaxWidth": {
+          "type": "number",
+          "default": 1920,
+          "minimum": 960,
+          "maximum": 3840,
+          "description": "场景渲染最大宽度（像素），高度按窗口比例自动计算"
+        },
+        "vscode-wallpaper-engine.sceneMuted": {
+          "type": "boolean",
+          "default": true,
+          "description": "静音场景预览窗口（不影响桌面壁纸的声音）"
+        }
+      }
+    }
+  },
+  "scripts": {},
+  "files": [
+    "extension.js",
+    "media",
+    "bin",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE.txt",
+    "NOTICE.md"
+  ]
+}

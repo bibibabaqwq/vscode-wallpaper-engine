@@ -1,0 +1,7 @@
+.gitignore
+.gitattributes
+PUBLISH.md
+*.vsix
+dist-vsix/
+node_modules/
+scripts/
