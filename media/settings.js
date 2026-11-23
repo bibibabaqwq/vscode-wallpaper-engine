@@ -64,8 +64,8 @@
       row.className = 'rule sceneRule';
       const lbl = document.createElement('span');
       lbl.className = 'lbl';
-      lbl.textContent = p.label || p.key;
-      lbl.title = p.key;
+      lbl.textContent = p.label || '场景属性';
+      lbl.title = p.label || '';
       const wrap = document.createElement('div');
       wrap.className = 'sceneControl';
       const val = document.createElement('span');
@@ -98,13 +98,13 @@
         input.addEventListener('input', () => { val.textContent = input.value; sceneSend({ [p.key]: Number(input.value) }); });
       } else if (p.type === 'combo' && Array.isArray(p.options) && p.options.length) {
         input = document.createElement('select');
-        for (const o of p.options) {
+        p.options.forEach((o, i) => {
           const opt = document.createElement('option');
           opt.value = String(o.value);
-          opt.textContent = o.label || String(o.value);
+          opt.textContent = o.label || ('选项 ' + (i + 1));
           if (String(o.value) === String(p.value)) opt.selected = true;
           input.appendChild(opt);
-        }
+        });
         val.textContent = '';
         input.addEventListener('change', () => sceneSend({ [p.key]: input.value }));
       } else {

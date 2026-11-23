@@ -67,7 +67,7 @@ gh repo create vscode-wallpaper-engine --public --source . --remote origin --pus
 powershell -ExecutionPolicy Bypass -File .\scripts\build-vsix.ps1
 ```
 
-生成文件位于 `dist-vsix\vscode-wallpaper-engine-0.3.2.vsix`，内容与标准 `vsce` 打包一致，并包含
+生成文件位于 `dist-vsix\vscode-wallpaper-engine-0.3.3.vsix`，内容与标准 `vsce` 打包一致，并包含
 `LICENSE.txt` 与 `NOTICE.md`。
 
 ## 发布 VSIX 到 GitHub Releases
@@ -78,11 +78,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-vsix.ps1
 npx @vscode/vsce package
 ```
 
-会生成 `vscode-wallpaper-engine-0.3.2.vsix`。然后在 GitHub 仓库：
+会生成 `vscode-wallpaper-engine-0.3.3.vsix`。然后在 GitHub 仓库：
 
 1. 右侧点击 `Releases` → `Draft a new release`。
-2. Tag 填 `v0.3.2`。
-3. 标题写 `v0.3.2 - Unofficial fork`。
+2. Tag 填 `v0.3.3`。
+3. 标题写 `v0.3.3 - Unofficial fork`。
 4. 上传 VSIX。
 5. Release 说明中保留原项目链接和“非官方分支”声明。
 

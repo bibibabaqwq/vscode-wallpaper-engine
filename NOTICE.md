@@ -29,6 +29,7 @@
 - 新增可视化透明度控制台、实时预览、自定义 CSS / JS。
 - 新增与 Wallpaper Engine 当前壁纸同步、切换监听。
 - 0.3.2：使用 `WS_EX_TOOLWINDOW`、`WS_EX_NOACTIVATE`、`ITaskbarList::DeleteTab` 隐藏 Scene 预览窗口。
+- 0.3.3：修复旧 Scene 窗口偶发前台激活，串行化场景生命周期，并修复场景属性乱码标签。
 
 ## 商标声明
 

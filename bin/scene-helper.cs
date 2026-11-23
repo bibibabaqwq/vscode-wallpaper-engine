@@ -31,7 +31,10 @@ internal static class SceneHelper
     private static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern bool SetProcessDPIAware();
@@ -59,7 +62,8 @@ internal static class SceneHelper
     private const uint PW_RENDERFULLCONTENT = 2;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
-    private const int SW_RESTORE = 9;
+    private const int SW_SHOWNOACTIVATE = 4;
+    private const uint WM_CLOSE = 0x0010;
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_NOACTIVATE = 0x08000000;
@@ -74,7 +78,7 @@ internal static class SceneHelper
     private static int Main(string[] args)
     {
         try { SetProcessDPIAware(); } catch { }
-        if (args.Length == 0) { Console.WriteLine("usage: scene-helper <info|place|serve|snap|shot> ..."); return 1; }
+        if (args.Length == 0) { Console.WriteLine("usage: scene-helper <info|place|serve|snap|shot|close|waitgone> ..."); return 1; }
         string cmd = args[0].ToLowerInvariant();
         try
         {
@@ -83,6 +87,8 @@ internal static class SceneHelper
             if (cmd == "serve") return Serve(args);
             if (cmd == "snap") return Snap(args);
             if (cmd == "shot") return Shot(args);
+            if (cmd == "close") return CloseWindow(args);
+            if (cmd == "waitgone") return WaitGone(args);
         }
         catch (Exception ex)
         {
@@ -102,6 +108,16 @@ internal static class SceneHelper
             tbl.DeleteTab(h);
         }
         catch { }
+    }
+
+    private static void PrepareWindow(IntPtr h)
+    {
+        // 先设置扩展样式，再在最小化时用 SW_SHOWNOACTIVATE 显示。
+        // 绝不能使用 SW_RESTORE：它会激活窗口并把旧预览拉到前台。
+        int ex = GetWindowLong(h, GWL_EXSTYLE);
+        SetWindowLong(h, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        HideFromTaskbar(h);
+        if (IsIconic(h)) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
     }
 
     private static IntPtr WaitWindow(string title, int ms)
@@ -134,17 +150,44 @@ internal static class SceneHelper
         IntPtr h = WaitWindow(args[1], 12000);
         if (h == IntPtr.Zero) { Console.Error.WriteLine("window not found"); return 3; }
         int x = int.Parse(args[2]), y = int.Parse(args[3]), w = int.Parse(args[4]), hh = int.Parse(args[5]);
-        if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
         // 关键：只改扩展样式，不要使用 SWP_FRAMECHANGED。
         // 实测 SWP_FRAMECHANGED 会让 WE 的渲染表面变黑，导致 PrintWindow 抓到纯黑帧。
-        int ex = GetWindowLong(h, GWL_EXSTYLE);
-        SetWindowLong(h, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        PrepareWindow(h);
         bool ok = SetWindowPos(h, IntPtr.Zero, x, y, w, hh, SWP_NOZORDER | SWP_NOACTIVATE);
-        HideFromTaskbar(h);
         Thread.Sleep(250);
         RECT r; GetWindowRect(h, out r);
         Console.WriteLine("ok=" + ok + " rect=" + r.Left + "," + r.Top + "," + (r.Right - r.Left) + "," + (r.Bottom - r.Top));
         return ok ? 0 : 4;
+    }
+
+    private static int CloseWindow(string[] args)
+    {
+        if (args.Length < 2) return 1;
+        IntPtr h = FindWindow(null, args[1]);
+        if (h == IntPtr.Zero) return 0;
+        PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        Stopwatch sw = Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < 2500)
+        {
+            if (FindWindow(null, args[1]) == IntPtr.Zero) return 0;
+            Thread.Sleep(50);
+        }
+        return 3;
+    }
+
+    private static int WaitGone(string[] args)
+    {
+        if (args.Length < 2) return 1;
+        int ms = args.Length > 2 ? int.Parse(args[2]) : 2000;
+        if (ms < 0) ms = 0;
+        if (ms > 10000) ms = 10000;
+        Stopwatch sw = Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            if (FindWindow(null, args[1]) == IntPtr.Zero) return 0;
+            Thread.Sleep(50);
+        }
+        return FindWindow(null, args[1]) == IntPtr.Zero ? 0 : 3;
     }
 
     private static Bitmap Capture(IntPtr h)
@@ -248,6 +291,7 @@ internal static class SceneHelper
         ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
         MemoryStream ms = new MemoryStream(256 * 1024);
         int miss = 0;
+        IntPtr prepared = IntPtr.Zero;
         Stopwatch fpsSw = Stopwatch.StartNew();
         int frames = 0;
 
@@ -264,7 +308,11 @@ internal static class SceneHelper
                 continue;
             }
             miss = 0;
-            if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+            if (h != prepared)
+            {
+                PrepareWindow(h);
+                prepared = h;
+            }
 
             RECT r;
             if (!GetWindowRect(h, out r)) { Thread.Sleep(50); continue; }

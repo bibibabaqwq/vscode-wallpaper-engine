@@ -4,6 +4,20 @@
 
 # Changelog
 
+## 0.3.3
+
+- **修复切换壁纸后旧 Scene 窗口偶发被拉到前台、看起来像独立 Wallpaper Engine 程序**：
+  - 彻底移除 `ShowWindow(SW_RESTORE)`；最小化时改用 `SW_SHOWNOACTIVATE`，不再激活任何窗口
+  - 场景启动 / 停止 / 属性更新统一进入串行队列，并用版本号取消已经过期的切换任务
+  - 新预览窗口通过预先启动的 `place` 进程在创建瞬间隐藏并移出屏幕，不再等待 420ms
+  - 记录并关闭本扩展创建过的全部 `VSWE Scene ...` 窗口；关闭后等待窗口真正消失
+  - 新增 helper 的 `close` / `waitgone` 命令，并清理上一扩展进程遗留的抓帧进程与窗口
+- **修复场景属性面板显示 `imgsrchttp...` 超长乱码**：
+  - 清洗 HTML、脚本、图片 URL 与 HTML 实体，只保留真正可读的文字
+  - 识别并拒绝超长 key / slug，不再把 Wallpaper Engine 错误生成的属性 key 当作名称
+  - 无标题属性回退为「场景开关 / 场景颜色 / 场景滑块 / 场景选项 + 序号」
+  - 下拉选项标签同样清洗，避免选项值出现乱码
+
 ## 0.3.2
 
 - **隐藏场景预览窗口**：给 WE 弹窗设置 `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`，并调用

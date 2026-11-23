@@ -1,4 +1,4 @@
-# VSCode Wallpaper Engine（非官方修复分支 0.3.2）
+# VSCode Wallpaper Engine（非官方修复分支 0.3.3）
 
 > [!IMPORTANT]
 > **这是非官方修改分支（unofficial fork），不是原作者发布的官方版本。**
@@ -38,7 +38,7 @@
 ## 安装
 
 1. VS Code → 扩展面板右上角 `...` → **从 VSIX 安装**，选择
-   `vscode-wallpaper-engine-0.3.2.vsix`。
+   `vscode-wallpaper-engine-0.3.3.vsix`。
 2. 首次启用会修改 VS Code 安装目录下的 `workbench.html`（用于注入壁纸层），
    并自动备份为 `workbench.html.vswe-orig`。若 VS Code 安装在 `Program Files`，
    需要以管理员身份运行一次 VS Code（或让安装目录可写）。

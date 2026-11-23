@@ -297,7 +297,7 @@ const sceneState = {
   framesServed: 0
 };
 let sceneQueue = Promise.resolve();
-let sceneLastTitle = '';
+let sceneGeneration = 0;
 let sceneTitleCounter = 0;
 
 function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
@@ -382,11 +382,60 @@ async function ensureEngine() {
   return exe;
 }
 
-function scenePropLabel(options) {
-  const raw = String(options.text || options.key || '');
-  if (/^ui_browse_properties_/i.test(raw)) return '主题配色 (scheme color)';
-  const plain = raw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
-  return plain || String(options.key || '');
+function decodeSceneHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const n = parseInt(hex, 16);
+      return isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ' ';
+    })
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const n = parseInt(dec, 10);
+      return isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ' ';
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function scenePlainText(value) {
+  let text = String(value || '');
+  text = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+  text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ');
+  text = text.replace(/<br\s*\/?\s*>/gi, ' ');
+  text = text.replace(/<\/(?:p|div|li|h[1-6]|tr|td|th)>/gi, ' ');
+  text = text.replace(/<[^>]*>/g, ' ');
+  text = decodeSceneHtmlEntities(text);
+  return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function sceneLabelUsable(label, key) {
+  const text = String(label || '').trim();
+  if (!text || text.length > 90) return false;
+  if (key && text === String(key).trim()) return false;
+  if (/^(?:img|src|http|https|www\.|data:)/i.test(text)) return false;
+  const compact = text.replace(/\s+/g, '');
+  if (compact.length >= 48 && !/[\s\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(text)) return false;
+  if (compact.length >= 36 && /^[a-z0-9+/=_.:-]+$/i.test(compact) && !/[\s\u3400-\u9fff]/u.test(text)) return false;
+  return true;
+}
+
+function scenePropLabel(options, fallback) {
+  options = options || {};
+  const key = String(options.key || '');
+  const rawText = String(options.text || '');
+  if (/^ui_browse_properties_/i.test(scenePlainText(rawText)) || /^ui_browse_properties_/i.test(key)) {
+    return '主题配色 (scheme color)';
+  }
+  const text = scenePlainText(rawText);
+  if (sceneLabelUsable(text, key)) return text;
+  if (!rawText.trim()) {
+    const plainKey = scenePlainText(key);
+    if (sceneLabelUsable(plainKey, '')) return plainKey;
+  }
+  return String(fallback || '');
 }
 
 function weColorToHex(value) {
@@ -440,26 +489,35 @@ function coerceSceneValue(prop, value) {
 function readSceneProps(item) {
   const project = (item && item.project) || {};
   const raw = (project.general && project.general.properties) || project.properties || {};
+  const typeNames = { bool: '场景开关', color: '场景颜色', slider: '场景滑块', combo: '场景选项', textinput: '场景文本' };
   const list = [];
+  let visibleIndex = 0;
   for (const key of Object.keys(raw)) {
     const p = raw[key] || {};
     const type = String(p.type || 'text').toLowerCase();
     if (type === 'group') continue;
-    if (type === 'text') {
-      // 纯文本/HTML 只是说明文字，太长的直接忽略
-      const label = scenePropLabel(Object.assign({ key }, p));
-      if (!label || label === key || label.length > 90) continue;
-    }
+    visibleIndex++;
+    const fallback = (typeNames[type] || '场景属性') + ' ' + visibleIndex;
+    const label = scenePropLabel(Object.assign({ key }, p), fallback);
+    if (type === 'text' && (!sceneLabelUsable(scenePlainText(p.text), key) || !label)) continue;
     list.push({
       key,
       type,
-      label: scenePropLabel(Object.assign({ key }, p)),
+      label: label || fallback,
       order: Number(p.order) || 0,
       min: p.min,
       max: p.max,
       step: p.step,
       options: Array.isArray(p.options)
-        ? p.options.map(o => ({ label: String((o && (o.label !== undefined ? o.label : o.value)) || ''), value: o && o.value }))
+        ? p.options.map((o, i) => {
+            const value = o && o.value;
+            const rawOption = o && o.label !== undefined ? o.label : value;
+            const optionLabel = scenePlainText(rawOption);
+            return {
+              label: sceneLabelUsable(optionLabel, String(value)) ? optionLabel : ((typeNames.combo || '选项') + ' ' + (i + 1)),
+              value
+            };
+          })
         : null,
       def: p.value !== undefined ? p.value : (type === 'bool' ? false : '')
     });
@@ -560,24 +618,26 @@ function pickScenePort() {
   });
 }
 
-async function startSceneHelper() {
+async function startSceneHelper(generation) {
   const exe = sceneHelperPath();
   if (!exe) throw new Error('扩展缺少 bin/scene-helper.exe，请重新安装插件。');
+  if (generation !== undefined && generation !== sceneGeneration) return;
   if (sceneState.proc) {
     const old = sceneState.proc;
     sceneState.proc = null;
     try { old.kill(); } catch {}
-    await delay(150);
+    await delay(120);
   }
   sceneState.port = await pickScenePort();
   if (!sceneState.port) throw new Error('无法分配本地端口');
+  if (generation !== undefined && generation !== sceneGeneration) return;
   const args = ['serve', sceneState.title, String(sceneState.port), String(sceneState.fps), String(sceneState.quality), '1.0'];
   log('scene helper: ' + args.join(' '));
   const child = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] });
   sceneState.proc = child;
   child.on('error', e => {
     log('scene helper error: ' + String(e));
-    sceneState.error = '抓帧组件启动失败：' + String(e);
+    if (sceneState.proc === child) sceneState.error = '抓帧组件启动失败：' + String(e);
   });
   child.on('exit', code => {
     if (sceneState.proc === child) {
@@ -611,10 +671,11 @@ async function sceneSeq() {
   return st && st.ok ? Number(st.frames) || 0 : 0;
 }
 
-async function waitSceneReady(timeoutMs, minSeq) {
+async function waitSceneReady(timeoutMs, minSeq, generation) {
   const need = Math.max(0, Number(minSeq) || 0);
   const until = Date.now() + (timeoutMs || 25000);
   while (Date.now() < until) {
+    if (generation !== undefined && generation !== sceneGeneration) return false;
     const st = await sceneProbe('/status');
     if (st && st.ok && Number(st.frames) > need) {
       sceneState.ready = true;
@@ -629,30 +690,36 @@ async function waitSceneReady(timeoutMs, minSeq) {
   return false;
 }
 
-async function scenePlaceWindow() {
-  const exe = sceneHelperPath();
-  if (!exe || !sceneState.title) return;
-  await runExe(exe, ['place', sceneState.title, '-3000', '-3000', String(sceneState.size.w), String(sceneState.size.h)], 15000);
-}
-
-async function sceneOpenWindow() {
+async function sceneOpenWindow(generation) {
   const dest = sceneState.copyDir;
-  if (!dest) return;
+  if (!dest) return false;
+  if (generation !== undefined && generation !== sceneGeneration) return false;
   const pkg = path.join(dest, 'scene.pkg');
   const entry = fs.existsSync(pkg) ? pkg : path.join(dest, 'project.json');
-  const oldTitle = sceneState.title;
-  if (oldTitle) await weControl(['closeWallpaper', '-location', oldTitle]);
+  const exe = sceneHelperPath();
+
+  // 先结束抓帧进程，再彻底清掉本进程创建过的所有 VSWE 窗口，
+  // 避免旧实例被 WE 恢复后抢到前台。
   if (sceneState.proc) {
     const oldProc = sceneState.proc;
     sceneState.proc = null;
     try { oldProc.kill(); } catch {}
+    await delay(120);
   }
-  await delay(320);
+  await sceneCloseTitles(sceneSceneTitlesForPid(process.pid));
+  await delay(180);
+  if (generation !== undefined && generation !== sceneGeneration) return false;
+
   // 每次都用新的标题：WE 会按标题复用渲染实例，复用标题会沿用旧的属性值
   sceneTitleCounter++;
   sceneState.title = 'VSWE Scene ' + process.pid + '-' + sceneTitleCounter;
-  sceneLastTitle = sceneState.title;
-  try { await extensionContext.globalState.update('scene.lastTitle', sceneState.title); } catch {}
+  await sceneRememberTitle(sceneState.title);
+
+  // 关键：place 进程先启动、在内部等待窗口出现，窗口一创建就立刻设置
+  // WS_EX_NOACTIVATE 并移到屏幕外，绝不会等到 420ms 后才隐藏。
+  const placePromise = exe
+    ? runExe(exe, ['place', sceneState.title, '-3000', '-3000', String(sceneState.size.w), String(sceneState.size.h)], 14000)
+    : Promise.resolve({ ok: false, error: 'missing scene-helper.exe' });
   const res = await weControl([
     'openWallpaper',
     '-file', entry,
@@ -661,12 +728,21 @@ async function sceneOpenWindow() {
     '-height', String(sceneState.size.h),
     '-borderless'
   ]);
-  if (!res.ok) log('openWallpaper failed: ' + JSON.stringify(res));
-  await delay(420);
-  await scenePlaceWindow();
+  let placed = await placePromise;
+  if (!placed.ok && exe) {
+    log('scene place retry: ' + JSON.stringify(placed));
+    placed = await runExe(exe, ['place', sceneState.title, '-3000', '-3000', String(sceneState.size.w), String(sceneState.size.h)], 6000);
+  }
+  if (!placed.ok) log('scene place failed: ' + JSON.stringify(placed));
+  if (!res.ok && !placed.ok) {
+    log('openWallpaper failed: ' + JSON.stringify(res));
+    throw new Error('Wallpaper Engine 未能打开场景预览窗口：' + (res.error || res.code || 'unknown error'));
+  }
+  if (generation !== undefined && generation !== sceneGeneration) return false;
   if (getSettings().sceneMuted) await weControl(['mute', '-location', sceneState.title]);
-  await startSceneHelper();
+  await startSceneHelper(generation);
   sceneState.seqMark = 0;
+  return true;
 }
 
 function sceneTargetSize(settings, reported) {
@@ -723,8 +799,8 @@ function broadcastScene() {
   broadcast({ type: 'scene', scene: meta.scene, meta, settings: getSettings() });
 }
 
-async function sceneStop() {
-  const title = sceneState.title;
+async function sceneStopNow() {
+  const titles = sceneSceneTitlesForPid(process.pid);
   sceneState.active = false;
   sceneState.ready = false;
   sceneState.starting = false;
@@ -732,15 +808,28 @@ async function sceneStop() {
     const proc = sceneState.proc;
     sceneState.proc = null;
     try { proc.kill(); } catch {}
+    await delay(120);
   }
   sceneState.title = '';
   sceneState.port = 0;
-  if (title) await weControl(['closeWallpaper', '-location', title]);
+  await sceneCloseTitles(titles);
 }
 
-async function sceneStart(item, opts) {
+function sceneStop() {
+  const generation = ++sceneGeneration;
+  return queueScene(async () => {
+    if (generation !== sceneGeneration) return;
+    await sceneStopNow();
+    broadcastScene();
+  });
+}
+
+async function sceneStartNow(item, opts, generation) {
   opts = opts || {};
-  await sceneStop();
+  if (generation !== sceneGeneration) return false;
+  await sceneStopNow();
+  if (generation !== sceneGeneration) return false;
+
   const settings = getSettings();
   sceneState.error = '';
   if (!item || kindOf(item) !== 'scene') return false;
@@ -759,17 +848,34 @@ async function sceneStart(item, opts) {
   sceneState.values = opts.values || sceneInitialValues(item, sceneState.props);
   try {
     await ensureEngine();
+    if (generation !== sceneGeneration) return false;
     sceneState.copyDir = scenePrepareCopy(item);
     writeSceneProject();
+    if (generation !== sceneGeneration) return false;
     sceneState.title = '';
     sceneState.active = true;
-    await sceneOpenWindow();
+    const opened = await sceneOpenWindow(generation);
+    if (!opened) {
+      if (generation === sceneGeneration) {
+        sceneState.active = false;
+        sceneState.starting = false;
+      }
+      return false;
+    }
     broadcastScene();
-    const ok = await waitSceneReady(opts.timeout || 25000, 8);
+    const ok = await waitSceneReady(opts.timeout || 25000, 8, generation);
+    if (generation !== sceneGeneration) {
+      await sceneStopNow();
+      return false;
+    }
     sceneState.starting = false;
     broadcastScene();
     return ok;
   } catch (e) {
+    if (generation !== sceneGeneration) {
+      await sceneStopNow();
+      return false;
+    }
     sceneState.starting = false;
     sceneState.active = false;
     sceneState.error = String((e && e.message) || e);
@@ -779,19 +885,27 @@ async function sceneStart(item, opts) {
   }
 }
 
+function sceneStart(item, opts) {
+  const generation = ++sceneGeneration;
+  return queueScene(() => sceneStartNow(item, opts, generation));
+}
+
 function queueScene(task) {
-  sceneQueue = sceneQueue.then(task).catch(e => {
+  const run = sceneQueue.then(task).catch(e => {
     sceneState.starting = false;
     sceneState.error = String((e && e.message) || e);
     log('scene task failed: ' + sceneState.error);
     broadcastScene();
   });
-  return sceneQueue;
+  sceneQueue = run.catch(() => {});
+  return run;
 }
 
 function sceneApplyValues(values) {
+  const generation = sceneGeneration;
+  const wallpaperId = sceneState.wallpaperId;
   return queueScene(async () => {
-    if (!sceneState.active) return;
+    if (generation !== sceneGeneration || wallpaperId !== sceneState.wallpaperId || !sceneState.active) return;
     let changed = false;
     for (const p of sceneState.props) {
       if (!values || !Object.prototype.hasOwnProperty.call(values, p.key)) continue;
@@ -807,16 +921,20 @@ function sceneApplyValues(values) {
     sceneState.ready = false;
     sceneState.starting = true;
     broadcastScene();
-    await sceneOpenWindow();
-    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8);
+    const opened = await sceneOpenWindow(generation);
+    if (!opened || generation !== sceneGeneration) return;
+    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8, generation);
+    if (generation !== sceneGeneration) return;
     sceneState.starting = false;
     broadcastScene();
   });
 }
 
 function sceneResyncDesktop() {
+  const generation = sceneGeneration;
+  const wallpaperId = sceneState.wallpaperId;
   return queueScene(async () => {
-    if (!sceneState.active || !sceneState.item) return;
+    if (generation !== sceneGeneration || wallpaperId !== sceneState.wallpaperId || !sceneState.active || !sceneState.item) return;
     const fresh = sceneInitialValues(sceneState.item, sceneState.props);
     // 重新同步时丢弃本地保存的覆盖值
     try { await extensionContext.globalState.update('sceneProps.' + sceneState.wallpaperId, undefined); } catch {}
@@ -825,25 +943,32 @@ function sceneResyncDesktop() {
     sceneState.ready = false;
     sceneState.starting = true;
     broadcastScene();
-    await sceneOpenWindow();
-    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8);
+    const opened = await sceneOpenWindow(generation);
+    if (!opened || generation !== sceneGeneration) return;
+    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8, generation);
+    if (generation !== sceneGeneration) return;
     sceneState.starting = false;
     broadcastScene();
   });
 }
 
 function sceneRelaunch() {
+  if (!sceneState.active) {
+    if (current && kindOf(current) === 'scene') return sceneStart(current);
+    return Promise.resolve();
+  }
+  const generation = sceneGeneration;
+  const wallpaperId = sceneState.wallpaperId;
   return queueScene(async () => {
-    if (!sceneState.active) {
-      if (current && kindOf(current) === 'scene') sceneStart(current);
-      return;
-    }
+    if (generation !== sceneGeneration || wallpaperId !== sceneState.wallpaperId) return;
     sceneState.ready = false;
     sceneState.starting = true;
     sceneState.error = '';
     broadcastScene();
-    await sceneOpenWindow();
-    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8);
+    const opened = await sceneOpenWindow(generation);
+    if (!opened || generation !== sceneGeneration) return;
+    await waitSceneReady(20000, (sceneState.seqMark || 0) + 8, generation);
+    if (generation !== sceneGeneration) return;
     sceneState.starting = false;
     broadcastScene();
   });
@@ -854,10 +979,13 @@ function sceneApplyFps(fps) {
   if (next === sceneState.fps) return Promise.resolve();
   sceneState.fps = next;
   if (!sceneState.active) return Promise.resolve();
+  const generation = sceneGeneration;
+  const wallpaperId = sceneState.wallpaperId;
   return queueScene(async () => {
+    if (generation !== sceneGeneration || wallpaperId !== sceneState.wallpaperId || !sceneState.active) return;
     sceneState.ready = false;
-    await startSceneHelper();
-    await waitSceneReady(12000, 6);
+    await startSceneHelper(generation);
+    await waitSceneReady(12000, 6, generation);
     broadcastScene();
   });
 }
@@ -871,13 +999,17 @@ function sceneSetSize(reported) {
   sceneState.lastResize = now;
   sceneState.size = target;
   log('scene resize to ' + target.w + 'x' + target.h);
+  const generation = sceneGeneration;
+  const wallpaperId = sceneState.wallpaperId;
   queueScene(async () => {
-    if (!sceneState.active) return;
+    if (generation !== sceneGeneration || wallpaperId !== sceneState.wallpaperId || !sceneState.active) return;
     sceneState.ready = false;
     sceneState.starting = true;
     broadcastScene();
-    await sceneOpenWindow();
-    await waitSceneReady(15000, (sceneState.seqMark || 0) + 8);
+    const opened = await sceneOpenWindow(generation);
+    if (!opened || generation !== sceneGeneration) return;
+    await waitSceneReady(15000, (sceneState.seqMark || 0) + 8, generation);
+    if (generation !== sceneGeneration) return;
     sceneState.starting = false;
     broadcastScene();
   });
@@ -915,27 +1047,121 @@ function proxySceneFrame(res) {
   res.on('close', () => { try { upstream.destroy(); } catch {} });
 }
 
-async function cleanupStaleScene() {
-  let title = '';
-  try { title = extensionContext.globalState.get('scene.lastTitle') || ''; } catch {}
-  if (!title) return;
-  // 只关闭本插件以前创建的同名弹窗（绝不影响桌面壁纸）
-  if (await weIsRunning()) await weControl(['closeWallpaper', '-location', title]);
-  try { await extensionContext.globalState.update('scene.lastTitle', ''); } catch {}
+const SCENE_TITLE_RE = /^VSWE Scene (\d+)-(\d+)$/;
+
+function sceneTitlesFromState() {
+  const titles = [];
+  try {
+    const saved = extensionContext.globalState.get('scene.ownedTitles');
+    if (Array.isArray(saved)) titles.push(...saved);
+  } catch {}
+  try {
+    const legacy = extensionContext.globalState.get('scene.lastTitle');
+    if (legacy) titles.push(legacy);
+  } catch {}
+  return Array.from(new Set(titles.map(String).filter(t => SCENE_TITLE_RE.test(t))));
 }
 
-function killStaleHelpers() {
+async function sceneSaveTitleList(titles) {
+  const clean = Array.from(new Set((titles || []).map(String).filter(t => SCENE_TITLE_RE.test(t)))).slice(-60);
+  try { await extensionContext.globalState.update('scene.ownedTitles', clean); } catch {}
+}
+
+async function sceneRememberTitle(title) {
+  if (!SCENE_TITLE_RE.test(String(title || ''))) return;
+  const titles = sceneTitlesFromState();
+  if (!titles.includes(title)) titles.push(title);
+  await sceneSaveTitleList(titles);
+}
+
+async function sceneForgetTitles(titles) {
+  const drop = new Set((titles || []).map(String));
+  if (!drop.size) return;
+  await sceneSaveTitleList(sceneTitlesFromState().filter(t => !drop.has(t)));
+}
+
+function scenePidAlive(pid) {
+  const n = Number(pid);
+  if (!n || n <= 0) return false;
+  try { process.kill(n, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+}
+
+function sceneSceneTitlesForPid(pid) {
+  const n = Number(pid);
+  const titles = sceneTitlesFromState().filter(t => {
+    const m = SCENE_TITLE_RE.exec(t);
+    return m && Number(m[1]) === n;
+  });
+  if (sceneState.title && SCENE_TITLE_RE.test(sceneState.title)) {
+    const m = SCENE_TITLE_RE.exec(sceneState.title);
+    if (m && Number(m[1]) === n && !titles.includes(sceneState.title)) titles.push(sceneState.title);
+  }
+  return titles;
+}
+
+async function sceneCloseTitle(title) {
+  if (!SCENE_TITLE_RE.test(String(title || ''))) return;
+  const exe = sceneHelperPath();
+  if (exe) {
+    // WM_CLOSE 只作用于带唯一 VSWE 标题的预览窗口，不会拉起 WE 主界面。
+    await runExe(exe, ['close', title], 4500);
+    const gone = await runExe(exe, ['waitgone', title, '1200'], 2600);
+    if (gone.ok) return;
+  }
+  if (await weIsRunning()) await weControl(['closeWallpaper', '-location', title]);
+  if (exe) {
+    const gone = await runExe(exe, ['waitgone', title, '1600'], 3000);
+    if (gone.ok) return;
+    await runExe(exe, ['close', title], 4000);
+  }
+}
+
+async function sceneCloseTitles(titles) {
+  const unique = Array.from(new Set((titles || []).filter(t => SCENE_TITLE_RE.test(String(t || '')))));
+  for (const title of unique) {
+    try { await sceneCloseTitle(title); } catch (e) { log('close scene title failed: ' + String(e)); }
+  }
+  if (unique.length) await sceneForgetTitles(unique);
+}
+
+function killStaleSceneHelpers() {
   return new Promise(resolve => {
-    execFile('tasklist', ['/FI', 'IMAGENAME eq scene-helper.exe', '/NH'], { windowsHide: true }, (err, stdout) => {
-      if (err) { resolve(); return; }
-      const pids = String(stdout || '').split(/\r?\n/).map(line => {
-        const m = /scene-helper\.exe\s+(\d+)/i.exec(line);
-        return m ? m[1] : '';
-      }).filter(Boolean);
-      for (const pid of pids) { try { execFile('taskkill', ['/PID', pid, '/F'], { windowsHide: true }, () => {}); } catch {} }
+    const script = "Get-CimInstance Win32_Process -Filter \"Name='scene-helper.exe'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 8000 }, (err, stdout) => {
+      if (err || !stdout) { resolve(); return; }
+      let rows = [];
+      try {
+        const parsed = JSON.parse(String(stdout).trim());
+        rows = Array.isArray(parsed) ? parsed : [parsed];
+      } catch { resolve(); return; }
+      for (const row of rows) {
+        const helperPid = Number(row && row.ProcessId);
+        const owner = /(?:serve|place)\s+VSWE Scene\s+(\d+)-/i.exec(String((row && row.CommandLine) || ''));
+        if (!helperPid || !owner) continue;
+        const ownerPid = Number(owner[1]);
+        if (ownerPid === process.pid || scenePidAlive(ownerPid)) continue;
+        try { execFile('taskkill', ['/PID', String(helperPid), '/F'], { windowsHide: true }, () => {}); } catch {}
+      }
       resolve();
     });
   });
+}
+
+async function cleanupStaleScene() {
+  await killStaleSceneHelpers();
+  const titles = sceneTitlesFromState();
+  const stale = titles.filter(t => {
+    const m = SCENE_TITLE_RE.exec(t);
+    const pid = m ? Number(m[1]) : 0;
+    return pid !== process.pid && !scenePidAlive(pid);
+  });
+  if (stale.length && await weIsRunning()) await sceneCloseTitles(stale);
+  const keep = sceneTitlesFromState().filter(t => {
+    const m = SCENE_TITLE_RE.exec(t);
+    return m && Number(m[1]) !== process.pid && scenePidAlive(Number(m[1]));
+  });
+  await sceneSaveTitleList(keep);
+  try { await extensionContext.globalState.update('scene.lastTitle', ''); } catch {}
 }
 
 /* ---------------- workbench injection ---------------- */
@@ -1835,10 +2061,11 @@ function reconcileOverrides() {
 }
 
 function deactivate() {
-  try { sceneStop(); } catch {}
   if (weWatchTimer) clearTimeout(weWatchTimer);
   if (weWatcher) { try { weWatcher.close(); } catch {} }
+  const closing = sceneStop().catch(() => {});
   stopServer();
+  return closing;
 }
 
 module.exports = {
@@ -1853,6 +2080,10 @@ module.exports = {
     sceneResyncDesktop,
     sceneInfo,
     sceneState,
+    readSceneProps,
+    scenePropLabel,
+    scenePlainText,
+    sceneLabelUsable,
     setCurrent: item => { current = item; },
     checksumState,
     updateChecksums,
